@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Complete Stock Market Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
+    .container { max-width: 1260px; margin: 0 auto; padding: 24px; }
+    .top { display: flex; gap: 10px; margin-bottom: 20px; }
+    input, button { padding: 10px; border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; }
+    button { cursor: pointer; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .card { background: #1e293b; border-radius: 10px; padding: 12px; }
+    h2 { margin-top: 0; }
+    .k { color: #94a3b8; font-size: 12px; }
+    .v { font-size: 16px; font-weight: bold; }
+    .section { margin-top: 20px; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { padding: 6px; border-bottom: 1px solid #334155; text-align: left; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Complete Stock Market Dashboard</h1>
+    <div class="top">
+      <input id="symbol" value="{{ default_symbol }}" placeholder="Enter symbol e.g. AAPL" />
+      <button onclick="loadData()">Load</button>
+    </div>
+
+    <div class="section card">
+      <h2>Market Overview (Indexes)</h2>
+      <div id="indexes" class="grid"></div>
+    </div>
+
+    <div class="section card">
+      <h2>Watchlist</h2>
+      <div id="watchlist" class="grid"></div>
+    </div>
+
+    <div id="overview" class="grid section"></div>
+
+    <div class="section card"><h2>1 Year Price History</h2><canvas id="priceChart"></canvas></div>
+    <div class="section card"><h2>Recent Intraday (5m)</h2><canvas id="intradayChart"></canvas></div>
+    <div class="section card"><h2>Company Profile</h2><p id="description"></p></div>
+
+    <div class="section card">
+      <h2>Dividends (recent)</h2>
+      <table id="dividendsTable"></table>
+    </div>
+  </div>
+
+<script>
+let priceChart, intradayChart;
+
+function fmt(v) {
+  if (v === null || v === undefined) return "N/A";
+  if (typeof v === 'number') return v.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  return String(v);
+}
+function card(k, v) { return `<div class="card"><div class="k">${k}</div><div class="v">${fmt(v)}</div></div>`; }
+function move(v) {
+  if (typeof v !== 'number') return 'N/A';
+  const color = v >= 0 ? '#34d399' : '#f87171';
+  return `<span style="color:${color}">${v.toFixed(2)}%</span>`;
+}
+
+async function loadOverview() {
+  const res = await fetch('/api/market-overview');
+  const data = await res.json();
+  document.getElementById('indexes').innerHTML = data.indexes.map(i => card(`${i.label} (${i.symbol})`, `${fmt(i.price)} | ${move(i.change_percent)}`)).join('');
+  document.getElementById('watchlist').innerHTML = data.watchlist.map(i => card(i.symbol, `${fmt(i.price)} | ${move(i.change_percent)}`)).join('');
+}
+
+function renderStockOverview(data) {
+  document.getElementById('overview').innerHTML = [
+    card('Symbol', data.symbol), card('Company', data.company.name), card('Current Price', data.price.current),
+    card('Open', data.price.open), card('Day High', data.price.high), card('Day Low', data.price.low),
+    card('Market Cap', data.price.market_cap), card('Volume', data.price.volume), card('52W High', data.price.fifty_two_week_high),
+    card('52W Low', data.price.fifty_two_week_low), card('P/E Ratio', data.valuation.pe_ratio), card('Forward P/E', data.valuation.forward_pe),
+    card('EPS', data.valuation.eps), card('Revenue', data.financials.revenue), card('Profit Margin', data.financials.profit_margin),
+    card('ROE', data.financials.return_on_equity), card('Recommendation', data.events.recommendation), card('Target Mean Price', data.events.target_mean_price)
+  ].join('');
+  document.getElementById('description').innerText = data.company.description || 'No description available.';
+}
+
+function renderCharts(data) {
+  const pLabels = data.history_1y.map(r => r.date), pVals = data.history_1y.map(r => r.close);
+  const iLabels = data.intraday_5m.map(r => r.date), iVals = data.intraday_5m.map(r => r.close);
+  if (priceChart) priceChart.destroy();
+  if (intradayChart) intradayChart.destroy();
+  priceChart = new Chart(document.getElementById('priceChart'), { type: 'line', data: { labels: pLabels, datasets: [{ label: 'Close', data: pVals, borderColor: '#38bdf8' }] } });
+  intradayChart = new Chart(document.getElementById('intradayChart'), { type: 'line', data: { labels: iLabels, datasets: [{ label: 'Intraday Close', data: iVals, borderColor: '#34d399' }] } });
+}
+
+function renderDividends(data) {
+  const rows = data.dividends.slice(-20).reverse();
+  document.getElementById('dividendsTable').innerHTML = '<tr><th>Date</th><th>Dividend</th></tr>' + rows.map(r => `<tr><td>${r.date}</td><td>${fmt(r.dividends)}</td></tr>`).join('');
+}
+
+async function loadData() {
+  const symbol = document.getElementById('symbol').value.trim();
+  const res = await fetch(`/api/stock?symbol=${encodeURIComponent(symbol)}`);
+  const data = await res.json();
+  if (data.error) return alert(data.error);
+  renderStockOverview(data); renderCharts(data); renderDividends(data);
+}
+
+loadOverview();
+loadData();
+</script>
+</body>
+</html>
